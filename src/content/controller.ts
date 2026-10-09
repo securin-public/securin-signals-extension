@@ -30,6 +30,9 @@ const NOTICE_TEXT: Record<NoticeKind, string> = {
   'no-cve-in-selection': 'No valid CVE identifier found in the selection',
 };
 
+/** Pause before the card opens, so sweeping across a page doesn't flash cards. */
+const SHOW_DELAY_MS = 200;
+/** Grace period to move the pointer from the CVE into the card. */
 const HIDE_DELAY_MS = 350;
 
 export class ContentController {
@@ -43,9 +46,12 @@ export class ContentController {
   private rafPending = false;
   private lastPointer = { x: 0, y: 0 };
   private hideTimer: ReturnType<typeof setTimeout> | null = null;
+  private showTimer: ReturnType<typeof setTimeout> | null = null;
   private started = false;
   /** Settled signal lookups for this page (errors are not kept, so they retry). */
   private readonly signalCache = new Map<CveId, CardSignals>();
+  /** Lookups in flight, so the prefetch and the opened card share one request. */
+  private readonly signalsPending = new Set<CveId>();
   private readonly cleanups: Array<() => void> = [];
 
   constructor(
@@ -83,12 +89,12 @@ export class ContentController {
     listen(this.doc, 'mousemove', (e) => this.onPointer(e.clientX, e.clientY));
     listen(this.doc, 'click', (e) => this.onPointer(e.clientX, e.clientY, true));
     listen(this.doc, 'contextmenu', (e) => this.onPointer(e.clientX, e.clientY, true));
-    listen(view, 'scroll', () => this.indicator?.hide());
+    listen(view, 'scroll', () => this.hideCard());
     // Capture-phase listeners on window also see element blurs (e.g. an input losing
     // focus when our button is clicked); only react to the window itself blurring.
-    listen(view, 'blur', (e) => e.target === view && this.indicator?.hide());
+    listen(view, 'blur', (e) => e.target === view && this.hideCard());
     listen(this.doc, 'keydown', (e) => {
-      if (e.key === 'Escape') this.indicator?.hide();
+      if (e.key === 'Escape') this.hideCard();
     });
   }
 
@@ -106,7 +112,7 @@ export class ContentController {
       }
     }
     this.highlightActive = shouldHighlight;
-    if (!this.inlineUiActive) this.indicator?.hide();
+    if (!this.inlineUiActive) this.hideCard();
     this.report();
   }
 
@@ -144,6 +150,7 @@ export class ContentController {
     this.indicator?.destroy();
     this.indicator = null;
     if (this.hideTimer) clearTimeout(this.hideTimer);
+    if (this.showTimer) clearTimeout(this.showTimer);
   }
 
   private get inlineUiActive(): boolean {
@@ -166,6 +173,8 @@ export class ContentController {
       ok = false;
     }
     if (!ok) ok = this.ensureIndicator().legacyCopy(cveId);
+    // Confirm inside the card when the copy came from it; otherwise use the toast.
+    if (ok && this.ensureIndicator().markCopied(cveId)) return;
     this.ensureIndicator().notify(ok ? `Copied ${cveId}` : NOTICE_TEXT['copy-failed']);
   }
 
@@ -184,7 +193,7 @@ export class ContentController {
   private onPointer(x: number, y: number, immediate = false): void {
     this.lastPointer = { x, y };
     if (immediate) {
-      this.updateHover();
+      this.updateHover(true);
       return;
     }
     if (this.rafPending || !this.scanner.hasMatches()) {
@@ -198,22 +207,52 @@ export class ContentController {
     });
   }
 
-  private updateHover(): void {
+  private updateHover(immediate = false): void {
     const hit = matchAtPoint(this.doc, this.scanner, this.lastPointer.x, this.lastPointer.y);
     this.setHovered(hit?.match.id ?? null);
     if (!this.inlineUiActive) return;
+
     if (hit) {
       if (this.hideTimer) clearTimeout(this.hideTimer);
       this.hideTimer = null;
-      const id = hit.match.id;
-      const switched = this.ensureIndicator().showFor(id, hit.rect, this.cardSignalsFor(id));
-      if (switched) void this.loadSignals(id);
-    } else if (this.indicator?.visibleCve && !this.hideTimer) {
+      this.highlighter?.setActive(hit.match.range);
+      // Open at once when a card is already up (moving between CVEs) or on click;
+      // otherwise wait briefly so a passing pointer doesn't open cards.
+      if (immediate || this.indicator?.visibleCve) {
+        this.openCard(hit.match.id, hit.rect);
+      } else if (!this.showTimer) {
+        // Start fetching during the pause so signals are ready sooner.
+        void this.loadSignals(hit.match.id);
+        this.showTimer = setTimeout(() => {
+          this.showTimer = null;
+          this.updateHover(true);
+        }, SHOW_DELAY_MS);
+      }
+      return;
+    }
+
+    if (this.showTimer) clearTimeout(this.showTimer);
+    this.showTimer = null;
+    if (!this.indicator?.visibleCve) {
+      this.highlighter?.setActive(null);
+    } else if (!this.hideTimer) {
       this.hideTimer = setTimeout(() => {
         this.hideTimer = null;
-        if (!this.indicator?.isPointerInside) this.indicator?.hide();
+        if (!this.indicator?.isPointerInside) this.hideCard();
       }, HIDE_DELAY_MS);
     }
+  }
+
+  private openCard(id: CveId, rect: DOMRect): void {
+    const switched = this.ensureIndicator().showFor(id, rect, this.cardSignalsFor(id));
+    if (switched) void this.loadSignals(id);
+  }
+
+  private hideCard(): void {
+    if (this.showTimer) clearTimeout(this.showTimer);
+    this.showTimer = null;
+    this.indicator?.hide();
+    this.highlighter?.setActive(null);
   }
 
   private cardSignalsFor(id: CveId): CardSignals {
@@ -222,12 +261,16 @@ export class ContentController {
   }
 
   private async loadSignals(id: CveId): Promise<void> {
-    if (!this.settings.signalsEnabled || !this.deps.getSignals || this.signalCache.has(id)) return;
+    if (!this.settings.signalsEnabled || !this.deps.getSignals) return;
+    if (this.signalCache.has(id) || this.signalsPending.has(id)) return;
+    this.signalsPending.add(id);
     let res: SignalsResponse | null = null;
     try {
       res = await this.deps.getSignals(id);
     } catch {
       res = null;
+    } finally {
+      this.signalsPending.delete(id);
     }
     let state: CardSignals;
     if (res?.state === 'ok' && res.signals) {

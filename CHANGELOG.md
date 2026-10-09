@@ -6,6 +6,10 @@
   violet palette, Poppins and Plus Jakarta Sans bundled locally).
 - Hover card with Securin signals: Securin Risk Score, CVSS, CISA/Securin KEV, exploit,
   ransomware, zero-day, trending and Securin tags.
+- Lighter, medium-size (320 px) hover card: severity badge, Risk Score meter, CVSS and EPSS,
+  explained signal chips, notch pointing at the CVE, and an "Open in Securin Signals" footer link.
+- Hover interactions: short open delay (no flashing while sweeping the page), stronger highlight
+  on the hovered CVE, inline copy confirmation, and signals prefetched during the delay.
 - Redesigned popup: compact header with settings, search with an "Open CVE-…" suggestion,
   rows that show each CVE's risk score and key signals, and a quiet per-site highlight switch.
 - New setting: **Show Securin signals on hover**.
