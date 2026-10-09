@@ -1,99 +1,50 @@
-// Renders the Securin Signals toolbar icon (signal mark on an ink tile) to PNG
-// at each manifest size, with 4x4 supersampling. No image dependencies.
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { deflateSync } from 'node:zlib';
+// Renders the toolbar/store icons from src/shared/securin-mark.svg: the Securin
+// logomark in brand violet on a dark rounded tile, via headless Chromium.
+//
+//   CHROME_PATH=/path/to/chrome npm run icons
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-const INK = [16, 34, 61];
-const SIGNAL = [46, 196, 182];
+const candidates = [
+  process.env.CHROME_PATH,
+  join(homedir(), '.cache/ms-playwright/chromium-1228/chrome-linux64/chrome'),
+  '/usr/bin/google-chrome',
+  '/usr/bin/chromium',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+].filter(Boolean);
+const chrome = candidates.find((p) => existsSync(p));
+if (!chrome) throw new Error('No Chrome found; set CHROME_PATH.');
 
-function crc32(buf) {
-  let c,
-    crc = 0xffffffff;
-  for (let n = 0; n < buf.length; n++) {
-    c = (crc ^ buf[n]) & 0xff;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    crc = (crc >>> 8) ^ c;
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
+const mark = readFileSync(new URL('../src/shared/securin-mark.svg', import.meta.url), 'utf8')
+  .replace('fill="currentColor"', 'fill="#9C66FF"')
+  .replace('<svg ', '<svg width="100%" height="100%" ');
 
-function chunk(type, data) {
-  const len = Buffer.alloc(4);
-  len.writeUInt32BE(data.length);
-  const td = Buffer.concat([Buffer.from(type), data]);
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(td));
-  return Buffer.concat([len, td, crc]);
-}
-
-function png(size, rgba) {
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(size, 0);
-  ihdr.writeUInt32BE(size, 4);
-  ihdr[8] = 8;
-  ihdr[9] = 6;
-  const raw = Buffer.alloc(size * (size * 4 + 1));
-  for (let y = 0; y < size; y++) {
-    raw[y * (size * 4 + 1)] = 0;
-    rgba.copy(raw, y * (size * 4 + 1) + 1, y * size * 4, (y + 1) * size * 4);
-  }
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk('IHDR', ihdr),
-    chunk('IDAT', deflateSync(raw)),
-    chunk('IEND', Buffer.alloc(0)),
-  ]);
-}
-
-// Shape in a 24-unit space, matching src/shared/BrandMark.tsx.
-function sample(x, y) {
-  // Rounded tile (r=5.5)
-  const r = 5.5,
-    cx = Math.min(Math.max(x, r), 24 - r),
-    cy = Math.min(Math.max(y, r), 24 - r);
-  if (Math.hypot(x - cx, y - cy) > r) return null;
-  const ox = 7.5,
-    oy = 16.5;
-  const d = Math.hypot(x - ox, y - oy);
-  const inQuadrant = x >= ox - 0.6 && y <= oy + 0.6;
-  if (d <= 2.6) return SIGNAL;
-  if (inQuadrant && Math.abs(d - 6.4) <= 1.25) return SIGNAL;
-  if (inQuadrant && Math.abs(d - 11.4) <= 1.25)
-    return SIGNAL.map((c, i) => Math.round(c * 0.65 + INK[i] * 0.35));
-  return INK;
-}
-
+const work = mkdtempSync(join(tmpdir(), 'securin-icons-'));
 mkdirSync('public/icons', { recursive: true });
+
 for (const size of [16, 32, 48, 128]) {
-  const ss = 4,
-    buf = Buffer.alloc(size * size * 4);
-  for (let py = 0; py < size; py++)
-    for (let px = 0; px < size; px++) {
-      let r = 0,
-        g = 0,
-        b = 0,
-        a = 0;
-      for (let sy = 0; sy < ss; sy++)
-        for (let sx = 0; sx < ss; sx++) {
-          const c = sample(
-            ((px + (sx + 0.5) / ss) / size) * 24,
-            ((py + (sy + 0.5) / ss) / size) * 24,
-          );
-          if (c) {
-            r += c[0];
-            g += c[1];
-            b += c[2];
-            a++;
-          }
-        }
-      const i = (py * size + px) * 4;
-      if (a) {
-        buf[i] = r / a;
-        buf[i + 1] = g / a;
-        buf[i + 2] = b / a;
-        buf[i + 3] = (a / (ss * ss)) * 255;
-      }
-    }
-  writeFileSync(`public/icons/icon-${size}.png`, png(size, buf));
+  const pad = Math.max(2, Math.round(size * 0.16));
+  const html = `<!doctype html><html><body style="margin:0;background:transparent">
+    <div style="width:${size}px;height:${size}px;box-sizing:border-box;padding:${pad}px;
+      border-radius:${Math.round(size * 0.22)}px;background:#1b1124;display:flex">${mark}</div>
+    </body></html>`;
+  const file = join(work, `icon-${size}.html`);
+  writeFileSync(file, html);
+  execFileSync(
+    chrome,
+    [
+      '--headless=new',
+      '--disable-gpu',
+      '--hide-scrollbars',
+      '--default-background-color=00000000',
+      `--window-size=${size},${size}`,
+      `--screenshot=${join(process.cwd(), `public/icons/icon-${size}.png`)}`,
+      `file://${file}`,
+    ],
+    { stdio: 'ignore' },
+  );
 }
-console.log('icons written');
+rmSync(work, { recursive: true, force: true });
+console.log('icons written to public/icons/');

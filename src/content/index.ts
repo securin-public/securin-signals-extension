@@ -1,5 +1,5 @@
 /** Content script entry: wires ContentController to chrome.* APIs. */
-import { parseToContent, type ContentToBackground } from '../utils/messages';
+import { parseSignalsResponse, parseToContent, type ContentToBackground } from '../utils/messages';
 import { loadSettings, onSettingsChanged } from '../utils/settings';
 import { ContentController } from './controller';
 
@@ -45,6 +45,11 @@ async function main(): Promise<void> {
       copyText: async (text) => {
         await navigator.clipboard.writeText(text);
         return true;
+      },
+      getSignals: async (cveId) => {
+        if (!isContextValid()) return null;
+        const raw: unknown = await chrome.runtime.sendMessage({ type: 'GET_SIGNALS', cveId });
+        return parseSignalsResponse(raw, cveId);
       },
     },
     settings,

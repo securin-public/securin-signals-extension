@@ -7,6 +7,8 @@ export interface Settings {
   inlineButtonEnabled: boolean;
   /** Show the per-tab CVE count on the toolbar icon. */
   badgeEnabled: boolean;
+  /** Fetch and show Securin signals (risk score, KEV, exploit...) in the hover card. */
+  signalsEnabled: boolean;
   /** Hostnames where highlighting is turned off (e.g. "app.example.com"). */
   disabledHosts: string[];
 }
@@ -15,6 +17,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   highlightEnabled: true,
   inlineButtonEnabled: true,
   badgeEnabled: true,
+  signalsEnabled: true,
   disabledHosts: [],
 });
 
@@ -54,6 +57,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     highlightEnabled: bool('highlightEnabled'),
     inlineButtonEnabled: bool('inlineButtonEnabled'),
     badgeEnabled: bool('badgeEnabled'),
+    signalsEnabled: bool('signalsEnabled'),
     disabledHosts: [...new Set(hosts)].slice(0, MAX_DISABLED_HOSTS),
   };
 }

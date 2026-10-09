@@ -7,6 +7,8 @@ import type { CveIntelligenceProvider, LookupOptions, LookupResult } from './pro
 
 export interface CacheOptions {
   ttlMs?: number;
+  /** TTL for "not-found" answers (defaults to ttlMs). Errors are never cached. */
+  notFoundTtlMs?: number;
   maxEntries?: number;
   timeoutMs?: number;
   now?: () => number;
@@ -50,6 +52,7 @@ export class CachingProvider implements CveIntelligenceProvider {
   private readonly cache = new Map<string, Entry>();
   private readonly inflight = new Map<string, Promise<LookupResult>>();
   private readonly ttlMs: number;
+  private readonly notFoundTtlMs: number;
   private readonly maxEntries: number;
   private readonly timeoutMs: number;
   private readonly now: () => number;
@@ -60,6 +63,7 @@ export class CachingProvider implements CveIntelligenceProvider {
   ) {
     this.name = `cached:${inner.name}`;
     this.ttlMs = options.ttlMs ?? 10 * 60_000;
+    this.notFoundTtlMs = options.notFoundTtlMs ?? this.ttlMs;
     this.maxEntries = options.maxEntries ?? 200;
     this.timeoutMs = options.timeoutMs ?? 8000;
     this.now = options.now ?? Date.now;
@@ -86,8 +90,9 @@ export class CachingProvider implements CveIntelligenceProvider {
         reason: err instanceof TimeoutError ? 'timeout' : 'network',
       }))
       .then((result) => {
-        // Only successful lookups are cached; failures retry next time.
-        if (result.status === 'ok') this.store(id, result);
+        // Answers are cached; transient failures retry next time.
+        if (result.status === 'ok') this.store(id, result, this.ttlMs);
+        else if (result.status === 'not-found') this.store(id, result, this.notFoundTtlMs);
         return result;
       })
       .finally(() => this.inflight.delete(id));
@@ -96,11 +101,11 @@ export class CachingProvider implements CveIntelligenceProvider {
     return request;
   }
 
-  private store(id: string, value: LookupResult): void {
+  private store(id: string, value: LookupResult, ttlMs: number): void {
     if (this.cache.size >= this.maxEntries) {
       const oldest = this.cache.keys().next().value;
       if (oldest !== undefined) this.cache.delete(oldest);
     }
-    this.cache.set(id, { value, expires: this.now() + this.ttlMs });
+    this.cache.set(id, { value, expires: this.now() + ttlMs });
   }
 }
