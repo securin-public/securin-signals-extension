@@ -3,7 +3,7 @@ import { createSignalsService, RateLimiter } from '../src/background/signals';
 import { parseVtiResponse, type CveSignals } from '../src/api/signals';
 import type { CveIntelligenceProvider, LookupResult } from '../src/api/provider';
 import { ContentController } from '../src/content/controller';
-import { InlineIndicator } from '../src/content/indicator';
+import { InlineIndicator, formatEpss } from '../src/content/indicator';
 import type { CveId } from '../src/utils/cve';
 import { parseContentToBackground, parseSignalsResponse } from '../src/utils/messages';
 import { DEFAULT_SETTINGS } from '../src/utils/settings';
@@ -27,10 +27,11 @@ describe('InlineIndicator hover card', () => {
     for (const expected of [
       'Windows SMB Remote Code Execution Vulnerability',
       '9.14',
-      'Critical',
       'Securin Risk Score',
       '8.8',
       'CVSS',
+      '93%',
+      'EPSS',
       'CISA KEV',
       'Exploit',
       'Ransomware',
@@ -38,9 +39,36 @@ describe('InlineIndicator hover card', () => {
     ]) {
       expect(text).toContain(expected);
     }
+    // Severity moves to the header badge.
+    expect(card.severityText).toBe('Critical');
     // "Zero Day" tag is shown only when the zeroDay flag is set (it is false here).
     expect(text).not.toContain('Zero Day');
     card.destroy();
+  });
+
+  it('hides the severity badge until signals arrive and when switching CVEs', () => {
+    const card = make();
+    card.showFor(ID, rect, { kind: 'ok', signals: signals() });
+    expect(card.severityText).toBe('Critical');
+    card.showFor('CVE-2021-44228' as CveId, rect, { kind: 'loading' });
+    expect(card.severityText).toBe('');
+    card.destroy();
+  });
+
+  it('confirms a copy inline only for the CVE it is showing', () => {
+    vi.useFakeTimers();
+    const card = make();
+    card.showFor(ID, rect, { kind: 'off' });
+    expect(card.copyLabel).toBe('Copy CVE-2017-0143');
+    expect(card.markCopied('CVE-2021-44228' as CveId)).toBe(false);
+    expect(card.markCopied(ID)).toBe(true);
+    expect(card.copyLabel).toBe('Copied CVE-2017-0143');
+    vi.advanceTimersByTime(1600);
+    expect(card.copyLabel).toBe('Copy CVE-2017-0143');
+    card.hide();
+    expect(card.markCopied(ID)).toBe(false);
+    card.destroy();
+    vi.useRealTimers();
   });
 
   it('ignores late results for a CVE it is no longer showing', () => {
@@ -110,6 +138,24 @@ describe('ContentController signal loading', () => {
     card.showFor(ID, rect, { kind: 'loading' });
     await internals.loadSignals(ID);
     await internals.loadSignals(ID);
+    expect(internals.deps.getSignals).toHaveBeenCalledTimes(1);
+    expect(card.signalsText).toContain('9.14');
+    controller.destroy();
+  });
+
+  it('shares one request between the prefetch and the opened card', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const { controller, internals } = setup(async (id) => {
+      await gate;
+      return { type: 'SIGNALS', cveId: id, state: 'ok', signals: signals() };
+    });
+    const card = internals.ensureIndicator();
+    const first = internals.loadSignals(ID);
+    card.showFor(ID, rect, { kind: 'loading' });
+    const second = internals.loadSignals(ID);
+    release();
+    await Promise.all([first, second]);
     expect(internals.deps.getSignals).toHaveBeenCalledTimes(1);
     expect(card.signalsText).toContain('9.14');
     controller.destroy();
@@ -231,4 +277,14 @@ describe('background signals service', () => {
     t = 1000;
     expect(limiter.tryTake()).toBe(true);
   });
+});
+
+describe('formatEpss', () => {
+  it.each([
+    [0.93307, '93%'],
+    [0.005, '<1%'],
+    [0.9996, '>99%'],
+    [0, '0%'],
+    [1, '100%'],
+  ])('%s -> %s', (p, text) => expect(formatEpss(p)).toBe(text));
 });

@@ -16,3 +16,18 @@
     text-decoration-color: #b48cff;
   }
 }
+
+/* The occurrence under the pointer while its card is open. */
+::highlight(securin-cve-active) {
+  background-color: rgba(127, 48, 255, 0.26);
+  text-decoration: underline solid #7f30ff;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  ::highlight(securin-cve-active) {
+    background-color: rgba(156, 102, 255, 0.36);
+    text-decoration-color: #c4a6ff;
+  }
+}
