@@ -75,11 +75,18 @@ export function OptionsApp({ services }: { services: OptionsServices }) {
           onChange={(v) => void update({ ...settings, highlightEnabled: v })}
         />
         <Toggle
-          label="Show the Open in Securin button on hover"
-          hint="A small button appears next to a highlighted CVE when you point at it."
+          label="Show the Securin card on hover"
+          hint="Point at a highlighted CVE to see a Securin card with an Open in Securin Signals button."
           checked={settings.inlineButtonEnabled}
           disabled={!settings.highlightEnabled}
           onChange={(v) => void update({ ...settings, inlineButtonEnabled: v })}
+        />
+        <Toggle
+          label="Show Securin signals on hover"
+          hint="Adds the Securin Risk Score, CVSS, KEV, exploit and ransomware status to the hover card."
+          checked={settings.signalsEnabled}
+          disabled={!settings.highlightEnabled || !settings.inlineButtonEnabled}
+          onChange={(v) => void update({ ...settings, signalsEnabled: v })}
         />
         <Toggle
           label="Show the CVE count on the toolbar icon"
@@ -151,10 +158,12 @@ export function OptionsApp({ services }: { services: OptionsServices }) {
       <section aria-labelledby="h-privacy">
         <h2 id="h-privacy">Privacy</h2>
         <p className="hint">
-          CVE detection runs entirely in your browser. Page content is never sent to Securin or
-          anywhere else. The extension only opens{' '}
-          <span className="code">https://www.securin.io/vulnerability-database/cve/&lt;ID&gt;</span>{' '}
-          when you choose to look up a CVE. Settings sync through your browser profile.
+          CVE detection runs entirely in your browser, and page content is never sent anywhere. When
+          you hover a CVE with signals turned on, only that CVE ID is sent to Securin&rsquo;s
+          vulnerability database to fetch its signals; results are cached for a few hours. Opening a
+          CVE goes to{' '}
+          <span className="code">https://www.securin.io/vulnerability-database/cve/&lt;ID&gt;</span>
+          . Settings sync through your browser profile.
         </p>
         <p className="hint">
           Keyboard: open the popup with <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> (change it at

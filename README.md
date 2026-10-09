@@ -7,16 +7,18 @@ A Manifest V3 extension that finds CVE identifiers on any webpage and opens the 
 CVE-2017-0143  →  https://www.securin.io/vulnerability-database/cve/CVE-2017-0143
 ```
 
-It adds no vulnerability data of its own. Securin's canonical CVE page is the source of truth.
+Pointing at a highlighted CVE shows a **Securin hover card** with its signals (Securin Risk Score, CVSS, CISA/Securin KEV,
+exploit, ransomware, zero-day, trending and Securin tags), straight from Securin's vulnerability database. The UI uses
+the securin.io theme: dark violet surfaces, the Securin logomark, Poppins and Plus Jakarta Sans.
 
 ## Features
 
 | Journey             | What happens                                                                                                                                                                                                                         |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Automatic detection | CVE IDs in page text get a subtle dotted underline. Pointing at one shows a small **Open in Securin** / copy button. Dynamically loaded content is picked up automatically.                                                          |
+| Automatic detection | CVE IDs in page text get a subtle violet underline. Pointing at one shows the Securin card: signals, **Open in Securin Signals** and copy. Dynamically loaded content is picked up automatically.                                    |
 | Right-click         | Select text containing a CVE (or right-click a highlighted CVE): **Open CVE in Securin Signals** / **Copy CVE identifier**.                                                                                                          |
 | Popup               | Count and list of unique CVEs on the current page (newest first), filter-as-you-type, manual lookup (`CVE-2021-44228`, `cve-2021-44228` or `2021-44228`), open and copy actions, per-site highlight switch. Shortcut: `Alt+Shift+S`. |
-| Settings            | Turn highlighting, the hover button, or the toolbar count on/off; list sites where highlighting is disabled.                                                                                                                         |
+| Settings            | Turn highlighting, the hover card, hover signals, or the toolbar count on/off; list sites where highlighting is disabled.                                                                                                            |
 
 ## Install (Load unpacked)
 
@@ -34,17 +36,19 @@ npm run build          # typecheck + build into dist/
 
 ## Scripts
 
-| Command                | Purpose                                                                                       |
-| ---------------------- | --------------------------------------------------------------------------------------------- |
-| `npm run build`        | Typecheck, then build popup/options/worker and the content script into `dist/`                |
-| `npm run dev`          | Rebuild pages + service worker on change (run the content build separately, or rerun `build`) |
-| `npm test`             | Vitest unit/component tests (jsdom)                                                           |
-| `npm run lint`         | ESLint (bans `innerHTML`, `eval`, etc.)                                                       |
-| `npm run format:check` | Prettier                                                                                      |
-| `npm run check`        | lint + format + tests + build                                                                 |
-| `npm run icons`        | Regenerate `public/icons/*.png` from code                                                     |
+| Command                | Purpose                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------ |
+| `npm run build`        | Typecheck, then build popup/options/worker and the content script into `dist/`                   |
+| `npm run package`      | Build, then zip `dist/` into `securin-signals.zip` for the Chrome Web Store                      |
+| `npm run demo`         | Serve `demo/index.html` at http://127.0.0.1:5174 for manual testing                              |
+| `npm run dev`          | Rebuild pages + service worker on change (run the content build separately, or rerun `build`)    |
+| `npm test`             | Vitest unit/component tests (jsdom)                                                              |
+| `npm run lint`         | ESLint (bans `innerHTML`, `eval`, etc.)                                                          |
+| `npm run format:check` | Prettier                                                                                         |
+| `npm run check`        | lint + format + tests + build                                                                    |
+| `npm run icons`        | Regenerate `public/icons/*.png` from `src/shared/securin-mark.svg` (needs Chrome; `CHROME_PATH`) |
 
-To ship to the Chrome Web Store, zip the **contents** of `dist/` (`cd dist && zip -r ../securin-signals.zip .`).
+To ship to the Chrome Web Store, run `npm run package` and upload `securin-signals.zip`.
 
 ## Architecture
 
@@ -54,13 +58,16 @@ src/
                messages.ts (typed contract + runtime validators), settings.ts, search.ts
   content/     scanner.ts (TreeWalker scan, live Ranges), observer.ts (debounced MutationObserver),
                exclusions.ts, highlighter.ts (CSS Custom Highlight API), hit-test.ts,
-               indicator.ts (closed shadow-DOM button + toast), controller.ts, index.ts
-  background/  index.ts (message routing), menus.ts (context menus), badge.ts
+               indicator.ts (closed shadow-DOM hover card + toast), controller.ts, index.ts
+  background/  index.ts (message routing), menus.ts (context menus), badge.ts,
+               signals.ts (rate limit + session cache + provider for hover-card signals)
   popup/       React popup (services.ts isolates chrome.* for tests)
   options/     React settings page
-  api/         provider.ts (intelligence provider interface + canonical-page provider),
-               cache.ts (TTL cache / request de-dup / timeout wrapper for a future API provider)
-  shared/      navigation.ts (the single "open record" path), tokens.css, BrandMark.tsx
+  api/         provider.ts (provider interface + canonical-page provider),
+               securin-vti.ts (Securin vulnerability-database provider), signals.ts (strict parser),
+               cache.ts (TTL cache / request de-dup / timeout wrapper)
+  shared/      navigation.ts (the single "open record" path), tokens.css (Securin theme),
+               BrandMark.tsx, securin-mark.svg (logomark: UI, hover card and icons)
 tests/         Vitest suites
 ```
 
@@ -83,13 +90,14 @@ Build: `vite.config.ts` builds the HTML pages and the ES-module service worker.
 
 ## Permissions
 
-| Permission                                    | Why                                                                                                                                                                                                                                                                                                                              |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Content script on `http://*/*`, `https://*/*` | **Required for automatic detection**: the extension must read page text to find CVE IDs wherever the user browses. Chrome shows this as "Read and change all your data on all websites". The script only reads text locally and never modifies page content (highlights are rendered by the browser, not inserted into the DOM). |
-| `contextMenus`                                | Right-click "Open CVE in Securin Signals" / "Copy CVE identifier".                                                                                                                                                                                                                                                               |
-| `storage`                                     | Save settings (synced via the browser profile).                                                                                                                                                                                                                                                                                  |
+| Permission                                     | Why                                                                                                                                                                                                                                                                                                                              |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Content script on `http://*/*`, `https://*/*`  | **Required for automatic detection**: the extension must read page text to find CVE IDs wherever the user browses. Chrome shows this as "Read and change all your data on all websites". The script only reads text locally and never modifies page content (highlights are rendered by the browser, not inserted into the DOM). |
+| `contextMenus`                                 | Right-click "Open CVE in Securin Signals" / "Copy CVE identifier".                                                                                                                                                                                                                                                               |
+| `storage`                                      | Save settings (synced via the browser profile) and cache hover signals for the session (`storage.session`).                                                                                                                                                                                                                      |
+| Host `https://d2tc2ta7c5xxs3.cloudfront.net/*` | Securin's vulnerability-database endpoint for hover-card signals. Its CORS policy allows only www.securin.io, so the service worker needs this host permission to call it.                                                                                                                                                       |
 
-Deliberately **not** requested: `tabs`, `activeTab`, `scripting`, `clipboardWrite`, `webRequest`, `offscreen`, or any host
+Deliberately **not** requested: `tabs`, `activeTab`, `scripting`, `clipboardWrite`, `webRequest`, `offscreen`, or a host
 permission for securin.io. Opening a new tab doesn't need them, and the popup gets the page hostname from the content script.
 
 ## Security and privacy
@@ -102,39 +110,55 @@ permission for securin.io. Opening a new tab doesn't need them, and the popup ge
 - **No unsafe HTML.** UI is built with React or `textContent`/DOM APIs inside a closed shadow root. ESLint bans
   `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `eval`, and `new Function`. Extension pages use the default MV3 CSP (`script-src 'self'`).
 - **Synthetic clicks ignored.** The inline button acts only on `isTrusted` events.
-- **No data leaves the browser.** Page content is never transmitted. The only network activity is the user opening a
-  Securin record tab. No analytics, no remote code, no remote fonts.
+- **Minimal data sent.** Page content is never transmitted. Network activity is limited to:
+  (1) opening a Securin record tab, and (2) when hover signals are on, `POST {"view":"cve","id":"<CVE-ID>"}` to
+  Securin's vulnerability database for the CVE being hovered, sent from the service worker with no cookies, credentials
+  or referrer. Turn off **Show Securin signals on hover** to stop (2). No analytics, no remote code, no remote fonts
+  (Poppins and Plus Jakarta Sans are bundled, OFL-licensed).
+- **API responses are untrusted.** `parseVtiResponse()` reads only the fields observed in the live response,
+  type-checks and range-checks each one (booleans must be exactly `true`, scores within 0–10), strips control characters,
+  caps text and tag lengths, and rejects a record whose ID doesn't match the request. Responses over 5 MB or not
+  `application/json` are refused. Signals are re-validated (`isCveSignals`) when they cross into the content script.
+- **Bounded traffic.** Lookups happen only on a real hover. They are de-duplicated in flight, cached (6 h for records,
+  1 h for not-found) in memory and `chrome.storage.session`, time out after 8 s, and are rate-limited to 30 per minute.
 - The extension doesn't scan, probe, or exploit anything. It only navigates to public record pages.
 
-## Future Securin API integration
+## Securin signals integration
 
-`src/api/provider.ts` defines `CveIntelligenceProvider`. The shipped `CanonicalPageProvider` makes **no network
-requests**; it returns only the validated record URL. If an approved, documented Securin API becomes available:
+Hover-card signals come from the endpoint www.securin.io itself uses to render CVE pages. Securin approved its use by
+this extension:
 
-1. Implement a new provider against the **confirmed** endpoint and schema. Model optional fields explicitly; don't invent any.
-2. Wrap it in `CachingProvider` (`src/api/cache.ts`) for TTL caching, in-flight de-duplication, timeouts and abort.
-3. Do network calls from the service worker, add only that API's origin to `host_permissions`, and use a user-scoped,
-   expiring auth flow. Never embed a permanent API secret in the extension.
-4. Until then, the UI shows no CVSS, KEV, exploit or threat-actor data.
+```
+POST https://d2tc2ta7c5xxs3.cloudfront.net/api/vti-database/search
+{"view":"cve","id":"CVE-2017-0143"}   →  200 {"item": {...}}  |  404 {"error":"CVE not found"}
+```
+
+The endpoint is unauthenticated and not formally versioned, so it may change. The parser treats every field as
+optional. If the shape changes, the card shows "Signals are unavailable right now" and **Open in Securin Signals** keeps
+working, because navigation never depends on the API (`CanonicalPageProvider`). If Securin publishes a versioned API,
+implement another `CveIntelligenceProvider`, swap it in `src/background/signals.ts`, and update the host permission.
+Never embed a permanent API secret in the extension.
 
 ## Testing
 
-**Automated** (`npm test`): 184 tests covering valid/invalid IDs, case and dash normalization, de-duplication, URL
+**Automated** (`npm test`): 230 tests covering valid/invalid IDs, case and dash normalization, de-duplication, URL
 generation and URL-safety (path traversal, foreign origins, query/fragment injection), DOM scanning, exclusions,
 dynamic updates and debouncing, message validation, settings sanitization, context-menu handling, provider caching/timeouts,
-and the popup (states, search, copy, site toggle) and options page, including error paths.
+the signals parser (against a real captured response plus hostile and malformed payloads), the API provider (request
+shape, 404, errors, oversize, timeout), session caching and rate limiting, hover-card rendering states, and the popup (states, search, copy, site toggle) and options page, including error paths.
 
 **Browser smoke test (run during development).** The built `dist/` was loaded unpacked in Chromium via Playwright.
 It verified highlight painting, an unchanged page DOM, excluded fields, badge counts, dynamic content, page buttons and
 inputs still working, the inline button opening the exact record, settings toggles, popup search, and that only
-canonical Securin URLs were navigated to.
+canonical Securin URLs were navigated to. A live run also confirmed real hover-card signals (e.g. CVE-2021-44228:
+Risk Score 9.4 Critical, CVSS 10, CISA KEV, Exploit, Ransomware), loading in about 1.5 s on a warm worker.
 
 **Still needs manual verification in desktop Chrome:**
 
 - [ ] Native context menu: selection items appear on selected text; "Open CVE-… in Securin Signals" appears when right-clicking a highlighted CVE; both actions work (including copy → paste).
 - [ ] Toolbar popup opened from the icon and via `Alt+Shift+S` on a normal page, a `chrome://` page ("unavailable" state), and a tab opened before install.
 - [ ] Keyboard-only use of the popup and options (tab order, focus rings, Enter/Escape); screen-reader announcements (NVDA/VoiceOver).
-- [ ] Light and dark OS themes for popup, options, highlight and inline button.
+- [ ] Highlight legibility on both light and dark websites; hover-card placement near viewport edges.
 - [ ] Heavy SPAs (e.g. GitHub advisories, Jira, Gmail) and long pages (NVD search results): no jank, no broken interactions.
 - [ ] Extension reload/update while tabs are open: orphaned content scripts shut down quietly.
 
@@ -144,3 +168,6 @@ canonical Securin URLs were navigated to.
 - Only the top frame is scanned (`all_frames: false`). CVEs inside iframes don't appear.
 - Shadow-DOM content of web components isn't scanned.
 - Pages can tell the extension is installed (the `securin-cve` highlight name is visible to page scripts).
+- The hover card falls back to system fonts: shadow-DOM `@font-face` doesn't apply, and exposing the bundled fonts to
+  pages would require `web_accessible_resources`, which lets sites fingerprint the extension.
+- The first hover after the service worker starts can take a few seconds while the worker wakes and fetches.

@@ -1,25 +1,27 @@
 /**
  * Intelligence provider seam.
  *
- * The initial release has no Securin API: the only integration point is the
- * public canonical CVE page. `CanonicalPageProvider` therefore makes no network
- * requests and returns only the record link. A future provider backed by an
- * approved, documented Securin API can implement the same interface and add
- * optional preview fields, without changing the popup or content script.
+ * `CanonicalPageProvider` makes no network requests and returns only the record
+ * link; navigation always goes through it. `SecurinVtiProvider` (securin-vti.ts)
+ * adds the hover-card signal summary from Securin's vulnerability database.
  *
  * Do not add fields here that the confirmed API schema does not provide.
  */
 import { normalizeCveId, type CveId } from '../utils/cve';
 import { buildSecurinCveUrl } from '../utils/url';
+import type { CveSignals } from './signals';
 
 export interface CveRecordLink {
   cveId: CveId;
   /** Canonical https://www.securin.io/vulnerability-database/cve/<ID> URL. */
   recordUrl: string;
+  /** Signal summary, when the provider supplies one. */
+  signals?: CveSignals;
 }
 
 export type LookupResult =
   | { status: 'ok'; record: CveRecordLink }
+  | { status: 'not-found' }
   | { status: 'invalid-id' }
   | { status: 'error'; reason: 'timeout' | 'network' | 'unavailable' };
 

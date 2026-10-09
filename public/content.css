@@ -1,18 +1,18 @@
 /*
- * Securin Signals CVE highlight. Painted via the CSS Custom Highlight API, so no
- * elements are inserted into the page. Only a handful of properties apply to
- * ::highlight(); keep it subtle so it never fights the host page's design.
+ * Securin Signals CVE highlight in Securin violet. Painted via the CSS Custom
+ * Highlight API, so no elements are inserted into the page. Only a handful of
+ * properties apply to ::highlight(); keep it subtle on any host page.
  */
 ::highlight(securin-cve) {
-  background-color: rgba(46, 196, 182, 0.18);
-  text-decoration: underline dotted rgba(17, 140, 128, 0.9);
+  background-color: rgba(127, 48, 255, 0.14);
+  text-decoration: underline dotted #7f30ff;
   text-decoration-thickness: 1.5px;
   text-underline-offset: 2px;
 }
 
 @media (prefers-color-scheme: dark) {
   ::highlight(securin-cve) {
-    background-color: rgba(46, 196, 182, 0.24);
-    text-decoration-color: rgba(94, 224, 210, 0.95);
+    background-color: rgba(156, 102, 255, 0.22);
+    text-decoration-color: #b48cff;
   }
 }

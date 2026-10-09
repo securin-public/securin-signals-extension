@@ -7,18 +7,21 @@ import type {
   ContentToBackground,
   NoticeKind,
   PageCvesResponse,
+  SignalsResponse,
   ToContent,
 } from '../utils/messages';
 import { isHostDisabled, type Settings } from '../utils/settings';
 import { CssHighlighter, isHighlightApiSupported } from './highlighter';
 import { matchAtPoint } from './hit-test';
-import { InlineIndicator } from './indicator';
+import { InlineIndicator, type CardSignals } from './indicator';
 import { DebouncedDomObserver, type PendingChanges } from './observer';
 import { CveScanner } from './scanner';
 
 export interface ContentDeps {
   send(message: ContentToBackground): void;
   copyText(text: string): Promise<boolean>;
+  /** Ask the service worker for Securin signals; resolves null on failure. */
+  getSignals?(cveId: CveId): Promise<SignalsResponse | null>;
 }
 
 const NOTICE_TEXT: Record<NoticeKind, string> = {
@@ -41,6 +44,8 @@ export class ContentController {
   private lastPointer = { x: 0, y: 0 };
   private hideTimer: ReturnType<typeof setTimeout> | null = null;
   private started = false;
+  /** Settled signal lookups for this page (errors are not kept, so they retry). */
+  private readonly signalCache = new Map<CveId, CardSignals>();
   private readonly cleanups: Array<() => void> = [];
 
   constructor(
@@ -88,6 +93,7 @@ export class ContentController {
   }
 
   applySettings(settings: Settings): void {
+    if (!settings.signalsEnabled) this.signalCache.clear();
     this.settings = settings;
     const shouldHighlight = settings.highlightEnabled && !isHostDisabled(settings, this.hostname);
     if (this.highlighter && shouldHighlight !== this.highlightActive) {
@@ -199,13 +205,43 @@ export class ContentController {
     if (hit) {
       if (this.hideTimer) clearTimeout(this.hideTimer);
       this.hideTimer = null;
-      this.ensureIndicator().showFor(hit.match.id, hit.rect);
+      const id = hit.match.id;
+      const switched = this.ensureIndicator().showFor(id, hit.rect, this.cardSignalsFor(id));
+      if (switched) void this.loadSignals(id);
     } else if (this.indicator?.visibleCve && !this.hideTimer) {
       this.hideTimer = setTimeout(() => {
         this.hideTimer = null;
         if (!this.indicator?.isPointerInside) this.indicator?.hide();
       }, HIDE_DELAY_MS);
     }
+  }
+
+  private cardSignalsFor(id: CveId): CardSignals {
+    if (!this.settings.signalsEnabled || !this.deps.getSignals) return { kind: 'off' };
+    return this.signalCache.get(id) ?? { kind: 'loading' };
+  }
+
+  private async loadSignals(id: CveId): Promise<void> {
+    if (!this.settings.signalsEnabled || !this.deps.getSignals || this.signalCache.has(id)) return;
+    let res: SignalsResponse | null = null;
+    try {
+      res = await this.deps.getSignals(id);
+    } catch {
+      res = null;
+    }
+    let state: CardSignals;
+    if (res?.state === 'ok' && res.signals) {
+      state = { kind: 'ok', signals: res.signals };
+      this.signalCache.set(id, state);
+    } else if (res?.state === 'not-found') {
+      state = { kind: 'not-found' };
+      this.signalCache.set(id, state);
+    } else if (res?.state === 'disabled') {
+      state = { kind: 'off' };
+    } else {
+      state = { kind: 'error' };
+    }
+    this.indicator?.setSignals(id, state);
   }
 
   /** Tell the service worker which CVE is under the pointer, for the context menu. */

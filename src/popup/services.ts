@@ -1,6 +1,10 @@
 /** chrome.* access for the popup, behind an interface so the UI can be tested. */
 import type { CveId } from '../utils/cve';
-import { parsePageCvesResponse } from '../utils/messages';
+import {
+  parsePageCvesResponse,
+  parseSignalsResponse,
+  type SignalsResponse,
+} from '../utils/messages';
 import { loadSettings, saveSettings, type Settings } from '../utils/settings';
 import { openCveRecord } from '../shared/navigation';
 
@@ -13,6 +17,8 @@ export type PageState =
 export interface PopupServices {
   getPageCves(): Promise<PageState>;
   openCve(cveId: string): Promise<boolean>;
+  /** Securin signals via the service worker (shared cache + rate limit); null on failure. */
+  getSignals(cveId: CveId): Promise<SignalsResponse | null>;
   copy(text: string): Promise<boolean>;
   loadSettings(): Promise<Settings>;
   saveSettings(settings: Settings): Promise<Settings>;
@@ -49,6 +55,14 @@ async function getPageCves(): Promise<PageState> {
 export const chromeServices: PopupServices = {
   getPageCves,
   openCve: async (cveId) => (await openCveRecord(cveId)).ok,
+  getSignals: async (cveId) => {
+    try {
+      const raw: unknown = await chrome.runtime.sendMessage({ type: 'GET_SIGNALS', cveId });
+      return parseSignalsResponse(raw, cveId);
+    } catch {
+      return null;
+    }
+  },
   copy: async (text) => {
     try {
       await navigator.clipboard.writeText(text);

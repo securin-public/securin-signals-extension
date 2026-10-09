@@ -21,7 +21,7 @@ describe('Options', () => {
     expect(services.saveSettings).toHaveBeenLastCalledWith(
       expect.objectContaining({ highlightEnabled: false }),
     );
-    expect(screen.getByRole('switch', { name: /Open in Securin button/ })).toBeDisabled();
+    expect(screen.getByRole('switch', { name: /Securin card on hover/ })).toBeDisabled();
     expect(await screen.findByRole('status')).toHaveTextContent('Saved');
   });
 
