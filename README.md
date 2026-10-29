@@ -6,6 +6,9 @@
 
 **Risk context for every CVE on the web, one hover away.**
 
+[Website](https://www.securin.io/) · [Vulnerability Database](https://www.securin.io/vulnerability-database/)
+
+[![Website](https://img.shields.io/badge/website-securin.io-7f30ff)](https://www.securin.io/)
 ![Version](https://img.shields.io/badge/version-1.1.0-7c3aed)
 ![Manifest](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)
 ![Chrome](https://img.shields.io/badge/Chrome-110%2B-4285F4)
