@@ -72,36 +72,6 @@ Then load it in Chrome:
 
 To build a Chrome Web Store package, run `npm run package` and upload the resulting `securin-signals.zip`.
 
-## Development
-
-| Command           | Purpose                                                                       |
-| ----------------- | ----------------------------------------------------------------------------- |
-| `npm run build`   | Typecheck, then build the popup, options, service worker and content script   |
-| `npm run dev`     | Rebuild pages and the service worker on change                                |
-| `npm run demo`    | Serve a test page with sample CVEs at http://127.0.0.1:5174                   |
-| `npm test`        | Run the Vitest unit and component tests                                       |
-| `npm run lint`    | ESLint (bans `innerHTML`, `eval` and similar)                                 |
-| `npm run check`   | Lint, format check, tests and build                                           |
-| `npm run package` | Build and zip `dist/` for the Chrome Web Store                                |
-| `npm run icons`   | Regenerate toolbar icons from `src/shared/securin-mark.svg` (requires Chrome) |
-
-### Project structure
-
-```
-src/
-├── content/     CVE scanning, highlighting (CSS Custom Highlight API), hover card
-├── background/  Service worker: message routing, context menus, badge, signal lookups
-├── popup/       React toolbar popup
-├── options/     React settings page
-├── api/         Signal providers, response parser, cache and timeouts
-├── shared/      Navigation, Securin theme tokens, brand mark
-└── utils/       CVE parsing, URL building, typed messages, settings
-tests/           Vitest suites
-```
-
-The HTML pages and the ES-module service worker are built by `vite.config.ts`. The content script is built separately
-as a single IIFE by `vite.content.config.ts`, because content scripts can't be ES modules.
-
 ## How it works
 
 - **No page changes.** Matches are painted with `CSS.highlights`, so the page DOM is never modified. Text owned by
@@ -110,17 +80,6 @@ as a single IIFE by `vite.content.config.ts`, because content scripts can't be E
   subtrees that changed. Work is capped at 5,000 occurrences per page.
 - **Strict matching.** IDs match `CVE-YYYY-NNNN…`, case-insensitively and with typographic dashes normalized.
   Form fields, editable regions, scripts, iframes and the extension's own UI are skipped.
-
-## Permissions
-
-| Permission                                    | Why it's needed                                                               |
-| --------------------------------------------- | ----------------------------------------------------------------------------- |
-| Content script on `http://*/*`, `https://*/*` | Reads page text locally to detect CVE IDs. Page content is never transmitted. |
-| `contextMenus`                                | Adds the right-click **Open** and **Copy** actions.                           |
-| `storage`                                     | Stores settings and caches hover signals for the browser session.             |
-| `https://d2tc2ta7c5xxs3.cloudfront.net/*`     | Securin's vulnerability-database endpoint used for hover-card signals.        |
-
-The extension does **not** request `tabs`, `activeTab`, `scripting`, `webRequest` or clipboard permissions.
 
 ## Security and privacy
 
@@ -136,27 +95,6 @@ The extension does **not** request `tabs`, `activeTab`, `scripting`, `webRequest
   limited to 30 per minute.
 
 See [PRIVACY.md](PRIVACY.md) for the full privacy policy.
-
-## Signals integration
-
-Hover-card signals come from the endpoint www.securin.io itself uses to render CVE pages. Securin has approved its use
-by this extension:
-
-```
-POST https://d2tc2ta7c5xxs3.cloudfront.net/api/vti-database/search
-{"view":"cve","id":"CVE-2017-0143"}  →  200 {"item": {...}}  |  404 {"error":"CVE not found"}
-```
-
-The endpoint isn't formally versioned, so the parser treats every field as optional. If the response shape changes,
-the hover card shows "Signals are unavailable right now" and **Open in Securin Signals** keeps working, because
-navigation never depends on the API. To move to a versioned API, implement a new `CveIntelligenceProvider` and swap it
-in `src/background/signals.ts`.
-
-## Testing
-
-`npm test` runs 244 tests covering CVE parsing, URL safety, DOM scanning, message validation, the signals parser
-(including hostile payloads), caching and rate limiting, and the popup and options UI. See
-[docs/TESTING.md](docs/TESTING.md) for the browser smoke test and the manual QA checklist.
 
 ## Known limitations
 
